@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pelota Libre TV - Ver fútbol en vivo y en directo</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .animate-bounce {
+            animation: bounce 1s infinite;
+        }
+        @keyframes bounce {
+            0%, 100% {
+                transform: translateY(-25%);
+                animation-timing-function: cubic-bezier(0.8,0,1,1);
+            }
+            50% {
+                transform: none;
+                animation-timing-function: cubic-bezier(0,0,0.2,1);
+            }
+        }
+    </style>
+</head>
+<body class="bg-white">
+    <main class="min-h-screen">
+        <div class="max-w-6xl mx-auto p-4">
+            <div class="text-center mb-8">
+                <h1 class="text-4xl font-bold mb-4">Pelota Libre TV</h1>
+                <p class="text-lg">
+                    Ver Pelota Libre TV online en vivo y en directo. Disfruta de canales gratuitos de streaming para ver
+                    partidos de fútbol argentino, Copa Libertadores, Copa Sudamericana, Champions League y más, en
+                    FULL HD.
+                </p>
+                <p class="text-xl mt-4">Ver Pelota Libre TV para todos.</p>
+            </div>
+
+            <div class="border border-gray-200 rounded-lg overflow-hidden">
+                <div class="bg-green-600 text-white px-4 py-2">
+                    <div class="text-lg" id="currentDate">
+                        Cargando fecha...
+                    </div>
+                    <div class="text-sm opacity-75" id="timezone">
+                        Cargando zona horaria...
+                    </div>
+                </div>
+                <div id="matchesContainer">
+                    <div class="text-center py-8">
+                        <div class="flex items-center justify-center space-x-2">
+                            <div class="w-2 h-2 bg-green-600 rounded-full animate-bounce" style="animation-delay: -0.3s"></div>
+                            <div class="w-2 h-2 bg-green-600 rounded-full animate-bounce" style="animation-delay: -0.15s"></div>
+                            <div class="w-2 h-2 bg-green-600 rounded-full animate-bounce"></div>
+                        </div>
+                        <div class="mt-2 text-gray-600">Cargando partidos...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // Format date in Spanish
+        function formatDateSpanish(date) {
+            const days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+            const months = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+            
+            return `${days[date.getDay()]}, ${date.getDate()} de ${months[date.getMonth()]} de ${date.getFullYear()}`;
+        }
+
+        // Get timezone name
+        function getLocalTimezoneName() {
+            return Intl.DateTimeFormat().resolvedOptions().timeZone;
+        }
+
+        // Convert Peru time to local
+        function convertPeruTimeToLocal(peruTime) {
+            const [hours, minutes] = peruTime.split(':').map(Number);
+            const now = new Date();
+            const peruDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes);
+            
+            // Peru is UTC-5, so we need to add 5 hours to get to UTC
+            peruDate.setHours(peruDate.getHours() + 5);
+            
+            // Then convert to local time
+            const localDate = new Date(peruDate.toLocaleString());
+            
+            return localDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+        }
+
+        // Filter today's matches
+        function filterTodayMatches(matches) {
+            const now = new Date();
+            const utcHours = now.getUTCHours();
+            const peruHours = utcHours - 5;
+            
+            const peruDate = new Date(now);
+            if (peruHours < 0) {
+                peruDate.setDate(peruDate.getDate() - 1);
+            } else if (peruHours >= 24) {
+                peruDate.setDate(peruDate.getDate() + 1);
+            }
+            
+            const peruDateStr = peruDate.toISOString().split('T')[0];
+            
+            return matches.filter(match => match.attributes.date_diary === peruDateStr);
+        }
+
+        // Sort matches by time
+        function sortMatchesByTime(matches) {
+            return [...matches].sort((a, b) => {
+                const timeA = a.attributes.diary_hour;
+                const timeB = b.attributes.diary_hour;
+                const [hoursA, minutesA] = timeA.split(':').map(Number);
+                const [hoursB, minutesB] = timeB.split(':').map(Number);
+                
+                const totalMinutesA = hoursA * 60 + minutesA;
+                const totalMinutesB = hoursB * 60 + minutesB;
+                
+                const adjustedMinutesA = totalMinutesA < 360 ? totalMinutesA + 1440 : totalMinutesA;
+                const adjustedMinutesB = totalMinutesB < 360 ? totalMinutesB + 1440 : totalMinutesB;
+                
+                return adjustedMinutesA - adjustedMinutesB;
+            });
+        }
+
+        // Update UI with current date and timezone
+        document.getElementById('currentDate').textContent = `${formatDateSpanish(new Date())} - Agenda Deportiva`;
+        document.getElementById('timezone').textContent = `Horarios mostrados en ${getLocalTimezoneName()}`;
+
+        // Fetch and display matches
+        async function fetchMatches() {
+            try {
+                const response = await fetch('https://golazoplay.com/agenda.json');
+                if (!response.ok) throw new Error('Error al cargar los partidos');
+                
+                const data = await response.json();
+                if (!data.data || !Array.isArray(data.data)) {
+                    throw new Error('Formato de datos inválido');
+                }
+
+                const todayMatches = filterTodayMatches(data.data);
+                const sortedMatches = sortMatchesByTime(todayMatches);
+                
+                const matchesHtml = sortedMatches.length > 0 
+                    ? sortedMatches.map(match => {
+                        const { id, attributes } = match;
+                        const { diary_hour, diary_description, embeds } = attributes;
+                        const localTime = convertPeruTimeToLocal(diary_hour);
+                        const embedData = embeds.data.map(embed => ({
+                            name: embed.attributes.embed_name,
+                            idioma: embed.attributes.idioma,
+                            url: embed.attributes.embed_iframe
+                        }));
+
+                        return `
+                            <tr class="border-b border-gray-200 last:border-0 hover:bg-gray-50">
+                                <td class="border-r border-gray-200 px-4 py-3 font-mono w-24">
+                                    ${localTime}
+                                </td>
+                                <td class="px-4 py-3">
+                                    <a href="match.html?id=${id}&title=${encodeURIComponent(diary_description)}&embedUrls=${encodeURIComponent(JSON.stringify(embedData))}"
+                                       class="text-blue-600 hover:underline">
+                                        ${diary_description}
+                                    </a>
+                                </td>
+                            </tr>
+                        `;
+                    }).join('')
+                    : `
+                        <tr>
+                            <td colspan="2" class="px-4 py-8 text-center text-gray-500">
+                                No hay partidos programados para hoy
+                            </td>
+                        </tr>
+                    `;
+
+                document.getElementById('matchesContainer').innerHTML = `
+                    <table class="w-full">
+                        <tbody>
+                            ${matchesHtml}
+                        </tbody>
+                    </table>
+                `;
+            } catch (error) {
+                document.getElementById('matchesContainer').innerHTML = `
+                    <div class="text-center py-8 text-red-500">
+                        Error al cargar los partidos. Por favor, intenta nuevamente más tarde.
+                    </div>
+                `;
+                console.error('Error:', error);
+            }
+        }
+
+        // Initial fetch and set up auto-refresh
+        fetchMatches();
+        setInterval(fetchMatches, 60000);
+    </script>
+</body>
+</html>
